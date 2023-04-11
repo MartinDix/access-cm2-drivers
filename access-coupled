@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+# *****************************COPYRIGHT******************************
+# (C) Crown copyright Met Office. All rights reserved.
+# For further details please refer to the file COPYRIGHT.txt
+# which you should have received as part of this distribution.
+# *****************************COPYRIGHT******************************
+#-----------------------------------------------------------------------
+# Code Owner: Please refer to the UM file CodeOwners.txt
+# This file belongs in section: Rose scripts
+#-----------------------------------------------------------------------
+# NAME
+#     um-coupled
+#
+# SYNOPSIS
+#     um-coupled [EXE ...]
+#
+# DESCRIPTION
+#     Set up the environment and namelists for running the coupled model and
+#     passes an MPI command file to the um-atmos script.
+#
+# ARGUMENTS
+#     None.
+#
+# ENVIRONMENT VARIABLES
+#     This script uses the following variables:
+#
+#     ATMOS_EXEC
+#          The atmosphere executable to launch. If provided this must be the
+#          full path to the executable. Default=um-atmos.exe.
+#     ATMOS_LINK
+#          Name of the symbolic link to the atmosphere executable.
+#          Default=toyatm.
+#     ATMOS_COUPLE_TYPE
+#          Determine whether to couple through the master or all atmosphere
+#          processors. Default=M (master processor).
+#     CICE_ATMOS_DATA
+#          Directory for CICE atmosphere forcing data.
+#     CICE_GRID
+#          Full path to the CICE grid file.
+#     CICE_KMT
+#          Full path to the CICE kmt file.
+#     CICE_NL
+#          File containing the CICE input namelist. Default=ice_in.
+#     CICE_NPROC
+#          Number of processors for CICE in the ocean executable.
+#     CICE_OCEAN_DATA
+#          Directory for CICE ocean forcing data.
+#     CICE_RESTART
+#          File containing CICE restart data. Default=ice.restart_file.
+#     CICE_START
+#          Location of the CICE start dump.
+#     CONTINUE
+#          Flag for Nrun - If not provided a new history file is created from INITHIS.
+#          Default=false.
+#     COUPLED_TASK_SPACING
+#          Spacing between tasks of different models, for load-balancing with
+#          OASIS3-MCT. Default=0.
+#     COUPLER
+#          Coupling method to use, currently OASIS3 or OASIS3-MCT.
+#     DATAM
+#          Directory for time-stamped STASH and dump files. Default=$DATAW.
+#     DATAW
+#          Location of task-shared working directory. Defaults:
+#          1. $ROSE_DATA
+#          2. $PWD
+#     FLUME_IOS_NPROC
+#          Number of processors for the UM's I/O server.
+#     HIST_DIR
+#          Directory containing an existing UM history file
+#          and (if appropriate) partial sums files. Default=$DATAM
+#     OASIS_EXEC
+#          The oasis executable to launch. If provided this must be the
+#          full path to the executable. Default=/projects/ocean/oasis/oasis3_3.0/20110919_para_MxSeg1500_nc362/prism/ibm_power7/bin/oasis3.MPI1.x
+#     OASIS_LINK
+#          Name of the symbolic link to the OASIS executable. Default=oasis3.
+#     OCEAN_EXEC
+#          The full path to the OASIS executable to launch.
+#     OCEAN_LINK
+#          Name of the symbolic link to the ocean executable. Default=toyoce.
+#     MODELBASIS
+#          The basis time for the model run. If not provided, read from the
+#          UM namelists.
+#     NAMCOUPLE_DIR
+#          Directory containing the namcouple files for OASIS.
+#     NAMCOUPLE_STUB
+#          Stem name of namcouple files. Default=namcouple_.
+#     OCEAN_COUPLE_TYPE
+#          Determine whether to couple through the master or all ocean
+#          processors. Default=M (master processor).
+#     PRISM_NPROC
+#          Number of processors for the OASIS executable.
+#     RMP_DIR
+#          Directory containing the remapping weights files for OASIS.
+#     TASKEND
+#          End time for this model run. If not provided, the run length is
+#          calculated from the UM namelists.
+#     TASKSTART
+#          The start time for this model run.
+#     RUNID
+#          Stem name of output files. Default=atmos.
+#     UM_ATM_NPROCX
+#          Number of atmosphere processors east-west.
+#     UM_ATM_NPROCY
+#          Number of atmosphere processors north-south.
+#-----------------------------------------------------------------------
+
+set -xeu
+
+echo "ACCESS COUPLED MODEL DRIVER", $PWD
+
+# Source common UM script functions from file
+um_scripts=$(dirname "$0")/um_script_functions
+if [ -f "$um_scripts" ] ; then
+    . $um_scripts
+else
+    echo "[FAIL] UM script functions file not found: $um_scripts " 1>&2
+    echo "[FAIL] Ensure the UM file above is located in the same " 1>&2
+    echo "[FAIL] directory as this script                        " 1>&2
+    exit 1
+fi
+
+usf_print_script_path
+
+export RUNID=${RUNID:-atmos}
+
+if [[ -z ${COUPLER:-} ]]; then
+    echo "[FAIL] Coupler (COUPLER=<model>) not defined in the environment." >&2
+    exit 100
+fi
+if [[ -z ${OCEAN_EXEC:-} ]]; then
+    echo "[FAIL] Ocean executable (OCEAN_EXEC=<full path to exec>) not defined in the environment." >&2
+    exit 110
+fi
+
+# Must match names in OASIS namcouple file
+ATMOS_LINK=toyatm
+OCEAN_LINK=mom5xx
+ICE_LINK=cicexx
+
+ln -sf $ATMOS_EXEC $ATMOS_LINK
+ln -sf $OCEAN_EXEC $OCEAN_LINK
+ln -sf $ICE_EXEC $ICE_LINK
+
+# Redefine exec names for the setup scripts later:
+ATMOS_EXEC=$ATMOS_LINK
+OCEAN_EXEC=$OCEAN_LINK
+
+# Print exec paths to file
+usf_which $ATMOS_EXEC
+usf_which $OCEAN_EXEC
+
+export UM_NPES=$((UM_ATM_NPROCX * UM_ATM_NPROCY))
+NPROC_MAX=$((UM_NPES + FLUME_IOS_NPROC))
+export OCN_NPES=$((OCN_NPROCX * OCN_NPROCY))
+TOT_NPES=$((NPROC_MAX + OCN_NPES + ICE_NPROCS))
+
+HIST_FILE=$RUNID.xhist
+
+# ########################################################################
+# ### CICE
+# ########################################################################
+
+# Modify main CICE namelist
+fix_cice_namelist.py $ICE_RUNDIR/cice_in.nml $ICE_RUNDIR/input_ice.nml
+if [[ $? != 0 ]]; then
+  echo "Error from fix_cice_namelist"
+  exit 1
+fi
+
+fix_mom_namelist.py $OCN_RUNDIR/input.nml
+if [[ $? != 0 ]]; then
+  echo "Error from fix_mom_namelist"
+  exit 1
+fi
+
+# ########################################################################
+# ### OASIS
+  # ########################################################################
+
+fix_namcouple.py $CPL_RUNDIR/namcouple
+if [[ $? != 0 ]]; then
+  echo "Error from fix_namcouple"
+  exit 1
+fi
+
+fix_diag_table.py $OCN_RUNDIR/INPUT/diag_table
+if [[ $? != 0 ]]; then
+  echo "Error from fix_diag_table"
+  exit 1
+fi
+
+export OMPI_MCA_hwloc_base_mem_alloc_policy=local_only
+
+mkdir -p $OCN_RUNDIR/RESTART $OCN_RUNDIR/HISTORY
+mkdir -p $ICE_RUNDIR/RESTART $ICE_RUNDIR/HISTORY
+
+# WARM_RESTART only applied on the first cycle
+if [[ $CYLC_TASK_CYCLE_POINT != $CYLC_SUITE_INITIAL_CYCLE_POINT ]]; then
+    WARM_RESTART="false"
+fi
+if [[ ${CONTINUE,,} == "true"  && ${WARM_RESTART,,} == "false" ]] ; then
+    # This is a continuation run so copy the restart files
+    # ENDDATE from the previous run
+    PREVDATE=$(cylc cyclepoint --offset=-P1D --template=CCYYMMDD)
+    cp ${ARCHIVEDIR}/restart/cpl/a2i.nc-${PREVDATE} $CPL_RUNDIR/a2i.nc
+    cp ${ARCHIVEDIR}/restart/cpl/o2i.nc-${PREVDATE} $CPL_RUNDIR/o2i.nc
+    cp ${ARCHIVEDIR}/restart/cpl/i2a.nc-${PREVDATE} $CPL_RUNDIR/i2a.nc
+
+  cd $DATAM
+  # Delete all the &NLSTCALL_PP_HIST sections from xhist so that the files do not
+  # need to be present. Update paths for CHECKPOINT_DUMP_IM and STREQLOG
+  fix_xhist.py ${ARCHIVEDIR}/restart/atm/${RUNID}.xhist-${PREVDATE} ${RUNID}.xhist
+  CHECKPOINT_DUMP_IM=$(basename $(get_checkpoint_name.py ${RUNID}.xhist))
+  ln -sf ${ARCHIVEDIR}/restart/atm/$CHECKPOINT_DUMP_IM .
+
+  cd $OCN_RUNDIR/INPUT
+  tar -xvf  ${ARCHIVEDIR}/restart/ocn/restart-${PREVDATE}.tar
+
+  cd $ICE_RUNDIR/RESTART
+
+  cp ${ARCHIVEDIR}/restart/ice/ice.restart_file-${PREVDATE} 	ice.restart_file
+  # Get the file named in ice.restart_file
+  cp ${ARCHIVEDIR}/restart/ice/$(basename $(cat ice.restart_file)) .
+  cp ${ARCHIVEDIR}/restart/ice/mice.nc-${PREVDATE} 	  	mice.nc
+
+  # Check that the restart file dates matches the cycle date. Don't check on first step
+  # of a warm restart, because it may have been altered
+  check_restart_dates.py
+  if [[ $? != 0 ]]; then
+    echo "Mismatch in restart dates"
+    exit 1
+  fi
+fi
+
+# If it's the first cycle of a WARM_RESTART_NRUN set CONTINUE false so the UM
+# does an NRUN
+if [[ ${WARM_RESTART_NRUN,,} == "true" && $CYLC_TASK_CYCLE_POINT == $CYLC_SUITE_INITIAL_CYCLE_POINT ]] ; then
+    echo "Setting CONTINUE=false for WARM_RESTART_RUN"
+    export CONTINUE=false
+fi
+
+create_rankfile.py
+
+# re-ordered to UM, MOM, ICE, added --report-bindings as per Scott  rwb 180517
+export ACCESSRUNCMD="${TOT_DEBUG:-}--rankfile $CYLC_TASK_WORK_DIR/rankfile \
+                     -wd $ATM_RUNDIR -n $UM_NPES $CYLC_TASK_WORK_DIR/$ATMOS_LINK : \
+                     -wd $OCN_RUNDIR -n $OCN_NPES $CYLC_TASK_WORK_DIR/$OCEAN_LINK : \
+                     -wd $ICE_RUNDIR -n $ICE_NPROCS $CYLC_TASK_WORK_DIR/$ICE_LINK"
+
+echo "RUNCOMMAND", $ACCESSRUNCMD
+
+access-atmos
