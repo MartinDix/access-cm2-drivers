@@ -30,7 +30,7 @@ if [[ $? != 0 ]]; then
 fi
 mv ${RUNID}.xhist ${ARCHIVEDIR}/restart/atm/${RUNID}.xhist-${ENDDATE}
 if [[ $? != 0 ]]; then
-  echo "Error moving atm shist file"
+  echo "Error moving atm xhist file"
   exit 1
 fi
 # These are needed for ozone adjustment so move them now too, even though

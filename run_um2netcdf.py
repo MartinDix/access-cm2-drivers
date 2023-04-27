@@ -70,12 +70,12 @@ for stream in STREAMS:
             print("jobfs files", tmp_input, tmp_output)
             shutil.copy(input, tmp_input)
             um2netcdf4.process(tmp_input, tmp_output, args)
-            os.unlink(tmp_input)
+            tmp_input.unlink()
             shutil.move(tmp_output, output)
         else:
             um2netcdf4.process(input, output, args)
         if REMOVE_FF:
-            os.unlink(input)
+            input.unlink()
 
         # Doesn't seem to be a month iterator in python
         month += 1

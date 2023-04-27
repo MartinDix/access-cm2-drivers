@@ -15,7 +15,7 @@
 #     um-atmos [EXE ...]
 #
 # DESCRIPTION
-#     Set up the environment and trigger the UM executable with 
+#     Set up the environment and trigger the UM executable with
 #     "rose mpi-launch".
 #
 # ARGUMENTS
@@ -32,7 +32,7 @@
 #     ATMOS_KEEP_MPP_STDOUT
 #          Switch to keep stdout files after a successful run. Default=false.
 #     ATMOS_STDOUT_FILE
-#          Base filename for model stdout (PE) files. 
+#          Base filename for model stdout (PE) files.
 #          Default=pe_output/atmos.fort6.pe
 #     CONTINUE
 #          Flag for Nrun - If not provided a new history file is created from INITHIS.
@@ -94,7 +94,7 @@ export HISTORY=${HISTORY:-atmos.xhist}
 if [[ ${CONTINUE:-false} == "false" ]] ; then
   rm -f $HISTORY
 else
-  if [[ ! -r $HISTORY ]]; then 
+  if [[ ! -r $HISTORY ]]; then
     echo "[FAIL] Cannot read history file $HISTORY" >&2
     exit 30
   fi
@@ -129,7 +129,7 @@ COMMAND="${@:-${ATMOS_EXEC:-$(dirname "$0")/um-atmos.exe}}"
 usf_which $COMMAND
 usf_print_script_path
 
-# Since we need to process some data after the executable we can trap the EXIT 
+# Since we need to process some data after the executable we can trap the EXIT
 # signal to do this automatically whenever this script exits.  This also
 # catches times when this script is killed for any reason.
 SIGNALS='EXIT'
@@ -153,10 +153,10 @@ FINALLY() {
 
   # Remove output from other PEs unless requested otherwise
   if [[ ${ATMOS_KEEP_MPP_STDOUT:-false} == "false" ]] ; then
-    for file in ${STDOUT_FILE}* ; do 
+    for file in ${STDOUT_FILE}* ; do
       if [[ $file != "$UM_PE0_STDOUT_FILE" ]]; then
-        rm $file 
-      fi 
+        rm $file
+      fi
     done
   fi
 
