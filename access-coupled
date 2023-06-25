@@ -78,7 +78,9 @@ OCEAN_EXEC=$OCEAN_LINK
 
 export UM_NPES=$((UM_ATM_NPROCX * UM_ATM_NPROCY))
 NPROC_MAX=$((UM_NPES + FLUME_IOS_NPROC))
-export OCN_NPES=$((OCN_NPROCX * OCN_NPROCY))
+# If land points are masked, expect that OCN_NPES is set already
+# Otherwise simply x * y
+export OCN_NPES=${OCN_NPES:-$((OCN_NPROCX * OCN_NPROCY))}
 TOT_NPES=$((NPROC_MAX + OCN_NPES + ICE_NPROCS))
 
 HIST_FILE=$RUNID.xhist
@@ -104,12 +106,14 @@ fi
 # ### OASIS
 # ########################################################################
 
+chmod u+w $CPL_RUNDIR/namcouple
 fix_namcouple.py $CPL_RUNDIR/namcouple
 if [[ $? != 0 ]]; then
   echo "Error from fix_namcouple"
   exit 1
 fi
 
+chmod u+w $OCN_RUNDIR/INPUT/diag_table
 fix_diag_table.py $OCN_RUNDIR/INPUT/diag_table
 if [[ $? != 0 ]]; then
   echo "Error from fix_diag_table"

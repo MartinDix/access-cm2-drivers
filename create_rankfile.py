@@ -9,22 +9,25 @@ um_decomp = {
         'ios': int(os.environ['FLUME_IOS_NPROC']),
         'omp': int(os.environ['OMP_NUM_THREADS'])}
 
-mom_decomp = {
-        'x': int(os.environ['OCN_NPROCX']),
-        'y': int(os.environ['OCN_NPROCY'])}
+# mom_decomp = {
+#         'x': int(os.environ['OCN_NPROCX']),
+#         'y': int(os.environ['OCN_NPROCY'])}
 
 ice_decomp = {
         'n': int(os.environ['ICE_NPROCS'])}
 
 # Total number of MPI ranks for each process
 um_nrank = um_decomp['x']*um_decomp['y']+um_decomp['ios']
-mom_nrank = mom_decomp['x']*mom_decomp['y']
+# mom_nrank = mom_decomp['x']*mom_decomp['y']
+mom_nrank = int(os.environ['OCN_NPES'])
 cice_nrank = ice_decomp['n']
 
 # Some information about processor layout
 slots_per_host = int(os.environ['NSLOTS'])
 sockets_per_host = 2
 slots_per_socket = slots_per_host / sockets_per_host
+
+share_nodes = os.environ['SHARE_NODES'] == 'true'
 
 # Assume that the number of threads evenly divides a single socket
 assert slots_per_socket % um_decomp['omp'] == 0
@@ -67,9 +70,11 @@ with open(os.path.join(os.environ['CYLC_TASK_WORK_DIR'],'rankfile'),'w') as rank
     # UM processes can get multiple cores, based on OMP_NUM_THREADS
     write_model_ranks(um_nrank, 0, 0, um_decomp['omp'])
 
-    # Start on a clean node but allow MOM and CICE to share node
     mom_host_start = math.ceil(um_nrank*um_decomp['omp']/ slots_per_host)
-    write_model_ranks(mom_nrank+cice_nrank, um_nrank, mom_host_start)
-
-    # cice_host_start = mom_host_start + math.ceil(mom_nrank / slots_per_host)
-    # write_model_ranks(cice_nrank, um_nrank+mom_nrank, cice_host_start)
+    if share_nodes:
+        # Start on a clean node but allow MOM and CICE to share node
+        write_model_ranks(mom_nrank+cice_nrank, um_nrank, mom_host_start)
+    else:
+        write_model_ranks(mom_nrank, um_nrank, mom_host_start)
+        cice_host_start = mom_host_start + math.ceil(mom_nrank / slots_per_host)
+        write_model_ranks(cice_nrank, um_nrank+mom_nrank, cice_host_start)

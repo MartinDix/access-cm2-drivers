@@ -31,14 +31,26 @@ for histfile in iceh_[dm]*; do
 done
 
 cd $OCN_RUNDIR/HISTORY
-if [ -e ocean_scalar.nc ]; then
-  # Fix the calendar
-  ncatted -a calendar,time,m,c,proleptic_gregorian -a calendar_type,time,d,, ocean_scalar.nc
-  mv ocean_scalar.nc $ARCHIVEDIR/history/ocn/ocean_scalar.nc-${ENDDATE}
+
+# COSIMA style diagnostics already have the year and month in the filename
+# Original CM2 style do not
+if compgen -G "*${THISYEAR}*.0000" > /dev/null; then
+  COSIMA_STYLE=true
+  SUFFIX=""
+else
+  COSIMA_STYLE=false
+  SUFFIX="-${ENDDATE}"
+fi
+
+if [ -e ocean_scalar*.nc ]; then
+  for file in ocean-scalar*.nc; do
+    ncatted -a calendar,time,m,c,proleptic_gregorian -a calendar_type,time,d,, $file
+    mv $file $ARCHIVEDIR/history/ocn/${file}${SUFFIX}
+  done
 fi
 for histfile in *.nc.0000; do
   basefile=${histfile%.*}              #drop the suffix '.0000'!
-  output=$ARCHIVEDIR/history/ocn/$basefile-${ENDDATE}
+  output=$ARCHIVEDIR/history/ocn/${basefile}${SUFFIX}
   #remove existing output from previous run
   if [[ -f $output ]]; then
     echo "Output file $output exists, removing"
